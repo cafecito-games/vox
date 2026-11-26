@@ -1,0 +1,46 @@
+name: CI
+
+# Branch pushes are covered by their pull request, so only the default branch
+# runs on push.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.11
+      - name: Verify formatting
+        run: golangci-lint fmt --diff ./...
+
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go build ./...
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean

@@ -1,0 +1,84 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: vox
+
+builds:
+  - id: vox
+    main: ./cmd/vox
+    binary: vox
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - >-
+        -s -w
+        -X github.com/cafecito-games/vox/internal/buildinfo.version={{ .Version }}
+        -X github.com/cafecito-games/vox/internal/buildinfo.commit={{ .FullCommit }}
+        -X github.com/cafecito-games/vox/internal/buildinfo.date={{ .CommitDate }}
+        -X github.com/cafecito-games/vox/internal/buildinfo.treeState={{ if .IsGitDirty }}dirty{{ else }}clean{{ end }}
+
+archives:
+  - id: binaries
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
+    files:
+      - license*
+      - LICENSE*
+      - readme*
+      - README*
+      - changelog*
+      - CHANGELOG*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+homebrew_casks:
+  - name: vox
+    repository:
+      owner: cafecito-games
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/cafecito-games/vox"
+    description: "Discord CLI for humans and AI agents"
+    # Release binaries are not notarized, so strip the quarantine attribute on
+    # install to prevent macOS Gatekeeper from blocking the executable.
+    #
+    # Uses custom_block rather than hooks.post.install so Homebrew receives the
+    # declarative `postflight_steps` block directly without deprecation warnings.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          if_path_exists "/usr/bin/xattr" do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/vox"]
+          end
+        end
+      end
+
+release:
+  draft: false
+  prerelease: auto

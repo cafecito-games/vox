@@ -1,0 +1,15 @@
+# Build artifacts
+bin/
+dist/
+/vox
+
+# Coverage & profiles
+coverage.out
+coverage.html
+*.prof
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

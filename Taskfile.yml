@@ -1,0 +1,76 @@
+version: "3"
+
+vars:
+  BIN_DIR: bin
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  fmt:
+    desc: Format all Go source files with gofmt and goimports
+    cmds:
+      - golangci-lint fmt ./...
+
+  fmt:check:
+    desc: Verify Go source formatting without modifying files
+    cmds:
+      - golangci-lint fmt --diff ./...
+
+  vet:
+    desc: Run go vet across all packages
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint across all packages
+    cmds:
+      - golangci-lint run ./...
+
+  lint:fix:
+    desc: Run golangci-lint with auto-fixes enabled
+    cmds:
+      - golangci-lint run --fix ./...
+
+  test:
+    desc: Run race-enabled test suite
+    cmds:
+      - go test -race ./...
+
+  test:cover:
+    desc: Run race-enabled tests and write coverage.out
+    cmds:
+      - go test -race -coverprofile=coverage.out ./...
+
+  build:
+    desc: Build vox binary into bin/vox
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/vox ./cmd/vox
+
+  release:check:
+    desc: Validate .goreleaser.yaml configuration
+    cmds:
+      - goreleaser check
+
+  release:snapshot:
+    desc: Build local snapshot release archives with GoReleaser
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  clean:
+    desc: Remove build artifacts and coverage files
+    cmds:
+      - rm -rf {{.BIN_DIR}} dist coverage.out coverage.html
+
+  check:
+    desc: Run full local verification (fmt:check, vet, lint, test, build)
+    cmds:
+      - task: fmt:check
+      - task: vet
+      - task: lint
+      - task: test
+      - task: build
