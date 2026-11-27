@@ -11,9 +11,21 @@ if [[ "$target" != darwin_* || "$snapshot" == true ]]; then
 fi
 
 signing_dir=${VOX_MACOS_SIGNING_DIR:?}
+sign_log="$signing_dir/$target.sign.log"
 if ! codesign --force --sign "${VOX_MACOS_SIGNING_IDENTITY:?}" \
-  --keychain "$signing_dir/signing.keychain-db" --options runtime --timestamp "$binary" ||
-  ! codesign --verify --strict "$binary"; then
+  --keychain "$signing_dir/signing.keychain-db" --options runtime --timestamp "$binary" > "$sign_log" 2>&1; then
+  if grep -qi 'unable to build chain' "$sign_log"; then
+    echo "macOS signing certificate chain failed for $target." >&2
+  elif grep -qi 'timestamp' "$sign_log"; then
+    echo "macOS signing timestamp failed for $target." >&2
+  elif grep -Eqi 'errSecInternalComponent|interaction is not allowed' "$sign_log"; then
+    echo "macOS signing key access failed for $target." >&2
+  else
+    echo "macOS signing failed for $target." >&2
+  fi
+  exit 1
+fi
+if ! codesign --verify --strict "$binary"; then
   echo "macOS signature verification failed for $target." >&2
   exit 1
 fi

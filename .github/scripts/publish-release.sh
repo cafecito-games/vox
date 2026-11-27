@@ -41,6 +41,31 @@ if ! {
 fi
 unset APPLE_DEVELOPER_ID_P12_PASSWORD keychain_password
 
+# codesign uses the user search list to find intermediate certificates even
+# when --keychain restricts which signing identity it can select.
+if ! keychain_search=$(security list-keychains -d user 2>> "$signing_dir/keychain.log"); then
+  echo '::error::Could not read the runner keychain search list.'
+  exit 1
+fi
+keychains=("$signing_keychain")
+keychain_entry='^[[:space:]]*"([^"]+)"[[:space:]]*$'
+while IFS= read -r entry; do
+  if [[ -z "$entry" ]]; then
+    continue
+  fi
+  if [[ ! "$entry" =~ $keychain_entry ]]; then
+    echo '::error::Could not parse the runner keychain search list.'
+    exit 1
+  fi
+  if [[ "${BASH_REMATCH[1]}" != "$signing_keychain" ]]; then
+    keychains+=("${BASH_REMATCH[1]}")
+  fi
+done <<< "$keychain_search"
+if ! security list-keychains -d user -s "${keychains[@]}" >> "$signing_dir/keychain.log" 2>&1; then
+  echo '::error::Could not add the temporary signing keychain to the search list.'
+  exit 1
+fi
+
 identity=$(security find-identity -v -p codesigning "$signing_keychain" 2>> "$signing_dir/keychain.log" |
   awk '/"Developer ID Application:/ {print $2}')
 if [[ ! "$identity" =~ ^[[:xdigit:]]{40}$ ]]; then
@@ -54,8 +79,16 @@ export VOX_MACOS_SIGNING_IDENTITY="$identity"
 # output off public logs and out of runner summaries.
 unset GITHUB_STEP_SUMMARY
 if ! goreleaser release --clean > "$signing_dir/release.log" 2>&1; then
-  if grep -Fq 'macOS signature verification failed' "$signing_dir/release.log"; then
-    echo '::error::A macOS binary failed signing or strict signature verification.'
+  if grep -Fq 'macOS signing certificate chain failed' "$signing_dir/release.log"; then
+    echo '::error::codesign could not build the Developer ID certificate chain.'
+  elif grep -Fq 'macOS signing timestamp failed' "$signing_dir/release.log"; then
+    echo '::error::codesign could not obtain an Apple timestamp.'
+  elif grep -Fq 'macOS signing key access failed' "$signing_dir/release.log"; then
+    echo '::error::codesign could not use the Developer ID private key on the runner.'
+  elif grep -Fq 'macOS signing failed' "$signing_dir/release.log"; then
+    echo '::error::codesign could not sign a macOS binary.'
+  elif grep -Fq 'macOS signature verification failed' "$signing_dir/release.log"; then
+    echo '::error::A signed macOS binary failed strict signature verification.'
   elif grep -Fq 'macOS notarization failed' "$signing_dir/release.log"; then
     echo '::error::Apple notarization did not return Accepted. Check the notarization status before retrying.'
   else

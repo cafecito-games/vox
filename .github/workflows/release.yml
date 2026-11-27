@@ -93,23 +93,39 @@ jobs:
               ;;
           esac
 
-          tag="v${major}.${minor}.${patch}"
           head_sha="$(git rev-parse HEAD)"
-          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+          while true; do
+            tag="v${major}.${minor}.${patch}"
+            remote_tag="$(git ls-remote --tags origin "refs/tags/${tag}")"
+            if [[ -z "$remote_tag" ]]; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag --annotate "${tag}" --message "vox ${tag}"
+              git push origin "refs/tags/${tag}"
+              echo "Created ${tag} at ${head_sha}"
+              break
+            fi
+
             git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
             tag_sha="$(git rev-list -n 1 "${tag}")"
-            if [[ "${tag_sha}" != "${head_sha}" ]]; then
-              echo "::error::${tag} points to ${tag_sha}, expected ${head_sha}"
+            if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" >/dev/null 2>"${release_error}"; then
+              echo "::error::${tag} already has a release."
+              exit 1
+            elif ! grep -q 'HTTP 404' "${release_error}"; then
+              cat "${release_error}" >&2
               exit 1
             fi
-            echo "Reusing ${tag} at ${head_sha} for a release retry"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag --annotate "${tag}" --message "vox ${tag}"
-            git push origin "refs/tags/${tag}"
-            echo "Created ${tag} at ${head_sha}"
-          fi
+            if [[ "${tag_sha}" == "${head_sha}" ]]; then
+              echo "Reusing ${tag} at ${head_sha} for a release retry"
+              break
+            fi
+            if ! git merge-base --is-ancestor "$tag_sha" "$head_sha"; then
+              echo "::error::${tag} points outside the release history at ${tag_sha}."
+              exit 1
+            fi
+            echo "Skipping ${tag}, which an earlier unpublished release attempt tagged."
+            patch=$((patch + 1))
+          done
 
           {
             echo "### Releasing ${tag}"
