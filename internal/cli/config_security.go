@@ -239,6 +239,7 @@ func newSetupCommand(app *App) *cobra.Command {
 				return err
 			}
 			return setup.Run(setup.Options{
+				Context:     cmd.Context(),
 				Store:       app.Store,
 				Security:    app.Security,
 				Logger:      app.Logger,

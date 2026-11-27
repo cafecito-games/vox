@@ -2,14 +2,18 @@ package setup
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cafecito-games/vox/internal/config"
+	"github.com/cafecito-games/vox/internal/output"
 	"github.com/cafecito-games/vox/internal/security"
 )
 
@@ -83,4 +87,47 @@ func TestSetupInteractiveFlow(t *testing.T) {
 	cfg, err := store.Load()
 	require.NoError(t, err)
 	assert.Equal(t, "valid-secret-token", cfg[config.KeyToken])
+}
+
+func TestSetupCancelsImmediatelyOnContextDone(t *testing.T) {
+	store, err := config.NewStore(t.TempDir())
+	require.NoError(t, err)
+
+	t.Setenv(config.EnvDiscordBotToken, "")
+	t.Setenv(config.EnvDiscordToken, "")
+
+	pipeReader, pipeWriter := io.Pipe()
+	defer func() {
+		_ = pipeWriter.Close()
+		_ = pipeReader.Close()
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(Options{
+			Context:     ctx,
+			Store:       store,
+			Security:    security.NewManager(store),
+			Interactive: true,
+			In:          pipeReader,
+			Out:         &stdout,
+			Err:         &stderr,
+		})
+	}()
+
+	time.Sleep(25 * time.Millisecond)
+	cancel()
+
+	select {
+	case runErr := <-done:
+		require.Error(t, runErr)
+		assert.ErrorIs(t, runErr, context.Canceled)
+		assert.Equal(t, output.ExitInterrupted, output.ExitCodeFor(runErr))
+	case <-time.After(time.Second):
+		t.Fatal("setup.Run did not cancel promptly when context was cancelled")
+	}
 }

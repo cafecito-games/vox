@@ -8,6 +8,7 @@ package setup
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	"strings"
 
 	disgodiscord "github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"golang.org/x/term"
 
@@ -50,6 +52,7 @@ type TokenValidator func(token string) (BotIdentity, error)
 
 // Options configures an interactive setup run.
 type Options struct {
+	Context       context.Context
 	Store         *config.Store
 	Security      *security.Manager
 	Logger        *slog.Logger
@@ -62,6 +65,10 @@ type Options struct {
 	ReadSecret    func(prompt string) (string, error)
 }
 
+func interruptedError() error {
+	return output.InterruptedError("Setup cancelled.")
+}
+
 // Run executes the 5-step interactive setup wizard.
 func Run(options Options) error {
 	if options.UseJSON || !options.Interactive {
@@ -71,6 +78,10 @@ func Run(options Options) error {
 		return output.NewError("non_interactive", "vox setup requires an interactive terminal")
 	}
 
+	ctx := options.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	in := options.In
 	if in == nil {
 		in = os.Stdin
@@ -86,18 +97,35 @@ func Run(options Options) error {
 	validator := options.ValidateToken
 	if validator == nil {
 		validator = func(token string) (BotIdentity, error) {
-			return defaultValidateToken(token, options.Logger)
+			return defaultValidateToken(ctx, token, options.Logger)
 		}
 	}
 
 	reader := bufio.NewReader(in)
+	type lineResult struct {
+		text string
+		err  error
+	}
 	readLine := func(prompt string) (string, error) {
-		_, _ = fmt.Fprint(out, prompt)
-		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return "", err
+		if ctx.Err() != nil {
+			return "", interruptedError()
 		}
-		return strings.TrimSpace(line), nil
+		_, _ = fmt.Fprint(out, prompt)
+		resultCh := make(chan lineResult, 1)
+		go func() {
+			line, err := reader.ReadString('\n')
+			resultCh <- lineResult{text: line, err: err}
+		}()
+		select {
+		case <-ctx.Done():
+			_, _ = fmt.Fprintln(out)
+			return "", interruptedError()
+		case res := <-resultCh:
+			if res.err != nil && !errors.Is(res.err, io.EOF) {
+				return "", res.err
+			}
+			return strings.TrimSpace(res.text), nil
+		}
 	}
 	confirm := func(prompt string, defaultYes bool) (bool, error) {
 		suffix := " [y/N]: "
@@ -117,20 +145,42 @@ func Run(options Options) error {
 	readSecret := options.ReadSecret
 	if readSecret == nil {
 		readSecret = func(prompt string) (string, error) {
-			_, _ = fmt.Fprint(out, prompt)
+			if ctx.Err() != nil {
+				return "", interruptedError()
+			}
 			if file, ok := in.(*os.File); ok && term.IsTerminal(int(file.Fd())) { //nolint:gosec // file descriptor fits in int
-				raw, err := term.ReadPassword(int(file.Fd())) //nolint:gosec // file descriptor fits in int
-				_, _ = fmt.Fprintln(out)
-				if err != nil {
-					return "", err
+				fd := int(file.Fd()) //nolint:gosec // file descriptor fits in int
+				oldState, stateErr := term.GetState(fd)
+				_, _ = fmt.Fprint(out, prompt)
+
+				resultCh := make(chan lineResult, 1)
+				go func() {
+					raw, err := term.ReadPassword(fd)
+					resultCh <- lineResult{text: string(raw), err: err}
+				}()
+
+				select {
+				case <-ctx.Done():
+					if stateErr == nil && oldState != nil {
+						_ = term.Restore(fd, oldState)
+					}
+					_, _ = fmt.Fprintln(out)
+					return "", interruptedError()
+				case res := <-resultCh:
+					_, _ = fmt.Fprintln(out)
+					if ctx.Err() != nil {
+						if stateErr == nil && oldState != nil {
+							_ = term.Restore(fd, oldState)
+						}
+						return "", interruptedError()
+					}
+					if res.err != nil {
+						return "", res.err
+					}
+					return strings.TrimSpace(res.text), nil
 				}
-				return strings.TrimSpace(string(raw)), nil
 			}
-			line, err := reader.ReadString('\n')
-			if err != nil && err != io.EOF {
-				return "", err
-			}
-			return strings.TrimSpace(line), nil
+			return readLine(prompt)
 		}
 	}
 
@@ -175,6 +225,9 @@ func Run(options Options) error {
 		}
 		identity, err := validator(candidate)
 		if err != nil {
+			if ctx.Err() != nil {
+				return interruptedError()
+			}
 			_, _ = fmt.Fprintf(errOut, "   Token validation failed: %v\n", err)
 			useExisting = false
 			continue
@@ -327,15 +380,15 @@ func printVoiceEnvHints(out io.Writer, ttsChoice, sttChoice string) {
 	}
 }
 
-func defaultValidateToken(token string, logger *slog.Logger) (BotIdentity, error) {
+func defaultValidateToken(ctx context.Context, token string, logger *slog.Logger) (BotIdentity, error) {
 	restClient := voxdiscord.NewRest(token, logger)
 	defer restClient.Close(context.Background())
 
-	user, err := restClient.GetCurrentUser("")
+	user, err := restClient.GetCurrentUser("", rest.WithCtx(ctx))
 	if err != nil {
 		return BotIdentity{}, voxdiscord.MapError(err)
 	}
-	guilds, err := restClient.GetCurrentUserGuilds("", 0, 0, 11, 0, false)
+	guilds, err := restClient.GetCurrentUserGuilds("", 0, 0, 11, 0, false, rest.WithCtx(ctx))
 	if err != nil {
 		return BotIdentity{}, voxdiscord.MapError(err)
 	}

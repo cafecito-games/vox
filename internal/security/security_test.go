@@ -2,6 +2,8 @@ package security
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +137,44 @@ func TestConfirmDestructiveInteractiveAndYesFlag(t *testing.T) {
 		Out:         &bytes.Buffer{},
 	})
 	require.ErrorIs(t, err, ErrAborted)
+}
+
+func TestConfirmDestructiveCancelsImmediatelyOnContextDone(t *testing.T) {
+	store, err := config.NewStore(t.TempDir())
+	require.NoError(t, err)
+	manager := NewManager(store)
+
+	pipeReader, pipeWriter := io.Pipe()
+	defer func() {
+		_ = pipeWriter.Close()
+		_ = pipeReader.Close()
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.ConfirmDestructive(ConfirmOptions{
+			Context:     ctx,
+			CommandPath: "message delete",
+			Interactive: true,
+			In:          pipeReader,
+			Out:         &bytes.Buffer{},
+		})
+	}()
+
+	time.Sleep(25 * time.Millisecond)
+	cancel()
+
+	select {
+	case confirmErr := <-done:
+		require.Error(t, confirmErr)
+		assert.ErrorIs(t, confirmErr, ErrAborted)
+		assert.ErrorIs(t, confirmErr, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("ConfirmDestructive did not cancel promptly when context was cancelled")
+	}
 }
 
 func TestAuditLoggerRoundTrip(t *testing.T) {
