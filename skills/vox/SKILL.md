@@ -37,7 +37,7 @@ vox schema --json | jq '.commands[] | select(.path == "message")'
 | Remove messages | `message delete` or `message bulk-delete`, with verified message IDs and authorization |
 | Manage threads or forum posts | `thread` and `channel forum-post` |
 | React, take a poll, or send a DM | `reaction`, `poll`, `dm` |
-| Signal typing or post through an existing webhook | `typing`, `webhook send` |
+| Signal typing or post through an existing webhook | `typing`, `webhook post` with `DISCORD_WEBHOOK_URL`, or `webhook send` when using a bot to look up a channel webhook |
 
 ```sh
 vox message search-server "$guild_id" 'release notes' --channel "$channel_id" --limit 10 --json

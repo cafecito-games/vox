@@ -1,0 +1,48 @@
+name: Notify Discord with Vox
+description: Post a message, status embed, or JSON payload to a Discord webhook
+inputs:
+  vox-version:
+    description: Vox release tag that includes webhook post, defaults to the release tag in the action ref
+  message:
+    description: Message text or embed description
+  title:
+    description: Title of a Discord embed
+  status:
+    description: Embed color for success, failure, warning, cancelled, skipped, or unknown
+  url:
+    description: Link for the embed title (defaults to the current Actions run)
+  fields-json:
+    description: JSON array of Discord embed fields
+  payload-file:
+    description: Path to a complete Discord webhook JSON payload, as an alternative to message and embed inputs
+  thread-id:
+    description: Discord thread ID for the destination
+outputs:
+  message-id:
+    description: ID of the Discord message confirmed by the webhook API
+    value: ${{ steps.post.outputs.message-id }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        VOX_VERSION: ${{ inputs.vox-version || github.action_ref }}
+      run: |
+        if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
+          echo '::error::Set DISCORD_WEBHOOK_URL to the Discord webhook secret.'
+          exit 1
+        fi
+        DISCORD_WEBHOOK_URL= bash "$GITHUB_ACTION_PATH/../setup/install.sh"
+    - id: post
+      shell: bash
+      env:
+        VOX_BIN: ${{ steps.install.outputs.path }}
+        VOX_NOTIFY_MESSAGE: ${{ inputs.message }}
+        VOX_NOTIFY_TITLE: ${{ inputs.title }}
+        VOX_NOTIFY_STATUS: ${{ inputs.status }}
+        VOX_NOTIFY_URL: ${{ inputs.url }}
+        VOX_NOTIFY_FIELDS: ${{ inputs.fields-json }}
+        VOX_NOTIFY_PAYLOAD: ${{ inputs.payload-file }}
+        VOX_NOTIFY_THREAD: ${{ inputs.thread-id }}
+      run: bash "$GITHUB_ACTION_PATH/post.sh"

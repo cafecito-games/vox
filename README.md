@@ -43,6 +43,51 @@ go install github.com/cafecito-games/vox/cmd/vox@latest
 
 Prebuilt binaries for macOS (`arm64`, `x86_64`), Linux (`arm64`, `x86_64`), and Windows (`arm64`, `x86_64`) are also published on the [GitHub Releases](https://github.com/cafecito-games/vox/releases) page.
 
+## GitHub Actions
+
+Use `cafecito-games/vox/actions/notify` for a Discord notification and `cafecito-games/vox/actions/setup` to make the Vox CLI available to later steps. Both actions install a checksum-verified Vox release on Linux or macOS runners with X64 or ARM64 architecture. They use the action's release tag by default. Set `vox-version` explicitly when pinning the action to a commit SHA. The notification action requires `jq` and reads the webhook from the `DISCORD_WEBHOOK_URL` environment variable.
+
+Add this notification job to a workflow with a `deploy` job. Replace `vX.Y.Z` with a published Vox release that contains `webhook post`. The job skips an unset webhook secret and treats delivery as best-effort.
+
+```yaml
+  notify-discord:
+    name: Notify Discord
+    needs: deploy
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - name: Post deployment status
+        if: env.DISCORD_WEBHOOK_URL != ''
+        id: discord
+        uses: cafecito-games/vox/actions/notify@vX.Y.Z
+        continue-on-error: true
+        with:
+          title: Deployment · ${{ needs.deploy.result }}
+          message: ${{ github.workflow }} run #${{ github.run_number }}
+          status: ${{ needs.deploy.result }}
+          fields-json: >-
+            [
+              {"name":"Ref","value":${{ toJSON(github.ref_name) }},"inline":true},
+              {"name":"Commit","value":${{ toJSON(github.sha) }},"inline":true}
+            ]
+```
+
+Use `message` for plain text or add `title`, `status`, or `fields-json` to create an embed. The action links to the current Actions run by default. Use `payload-file` to send an existing Discord JSON payload and `thread-id` to target a thread. A successful post exposes `steps.discord.outputs.message-id`. Leave `continue-on-error` unset when a delivery failure should fail the step.
+
+For direct CLI access, use the setup action followed by a shell step. Supply the webhook secret to the posting step.
+
+```yaml
+- uses: cafecito-games/vox/actions/setup@vX.Y.Z
+- run: vox webhook post --payload-file ./alert.json --file ./report.txt --json
+  env:
+    DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+```
+
+`vox webhook post` accepts text, embed flags, or a complete Discord JSON payload from a file or stdin (`--payload-file -`). It uses the webhook credential alone and waits for Discord to confirm delivery. Mentions are suppressed by default. A JSON payload can opt in using `allowed_mentions`. Use `vox webhook post --help` for the full set of flags.
+
 ## Quickstart
 
 ### Interactive Setup (Humans)
@@ -163,6 +208,7 @@ Select the skills you want. Use `--skill vox-admin` to select a specific skill o
 | [`vox`](skills/vox/SKILL.md) | Command discovery, messages, search, threads, polls, reactions, DMs, and access checks |
 | [`vox-admin`](skills/vox-admin/SKILL.md) | Bot provisioning, server-as-code, permissions, moderation, and community administration |
 | [`vox-automation`](skills/vox-automation/SKILL.md) | Event listeners, daemon actions, schedules, slash commands, workflows, and dashboards |
+| [`vox-ci`](skills/vox-ci/SKILL.md) | CI/CD notifications, GitHub Actions setup, and migration from webhook scripts |
 | [`vox-voice`](skills/vox-voice/SKILL.md) | Voice sessions, playback, text-to-speech, transcription, and capture |
 
 From a local Vox checkout, preview discovery with `npx skills add . --list`. The skills refer to `vox schema --json` for the command and action catalog of the installed binary.
