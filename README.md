@@ -372,7 +372,7 @@ The release job uses the `macos-release` GitHub environment, which allows deploy
 | `APPSTORE_CONNECT_KEY_ID` | Key ID for the notarization API key |
 | `APPSTORE_CONNECT_PRIVATE_KEY_BASE64` | Base64-encoded notarization API private key in a `.p8` file |
 
-The publishing step keeps decoded keys and release-tool output in a private temporary directory and deletes it on exit. Pull-request CI and local snapshots run without signing credentials.
+The publishing step uses Apple's `codesign` and `notarytool` on a macOS runner. It verifies each signature and waits for Apple to accept both macOS binaries before publishing. It deletes its temporary keychain, decoded keys, and private release log on exit. Pull-request CI and local snapshots run without signing credentials.
 
 ## License
 
