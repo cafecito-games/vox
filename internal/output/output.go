@@ -3,6 +3,7 @@
 package output
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ const (
 	ExitError            = 1
 	ExitUsage            = 2
 	ExitPermissionDenied = 3
+	ExitInterrupted      = 130
 )
 
 // ChannelVisibilityNote explains Discord's channel visibility filtering.
@@ -72,6 +74,16 @@ func PermissionError(message string, cause error) *CLIError {
 		Message:  message,
 		ExitCode: ExitPermissionDenied,
 		Cause:    cause,
+	}
+}
+
+// InterruptedError creates a CLIError with ExitInterrupted status (exit code 130).
+func InterruptedError(message string) *CLIError {
+	return &CLIError{
+		Code:     "interrupted",
+		Message:  message,
+		ExitCode: ExitInterrupted,
+		Cause:    context.Canceled,
 	}
 }
 
@@ -218,6 +230,11 @@ func (writer *Writer) PrintError(err error) {
 			_, _ = fmt.Fprintf(writer.Stderr, "%s\n", encoded)
 			return
 		}
+	}
+
+	if code == "interrupted" {
+		_, _ = fmt.Fprintln(writer.Stderr, message)
+		return
 	}
 
 	prefix := "Error:"

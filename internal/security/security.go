@@ -4,6 +4,7 @@ package security
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -411,6 +412,7 @@ func (manager *Manager) Enforce(commandPath, profileOverride string) error {
 
 // ConfirmOptions configures interactive destructive command confirmation.
 type ConfirmOptions struct {
+	Context         context.Context
 	CommandPath     string
 	Details         string
 	ProfileOverride string
@@ -457,13 +459,38 @@ func (manager *Manager) ConfirmDestructive(options ConfirmOptions) error {
 		in = os.Stdin
 	}
 
+	ctx := options.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return fmt.Errorf("%w: %w", ErrAborted, context.Canceled)
+	}
+
 	if _, err := fmt.Fprint(out, prompt); err != nil {
 		return err
 	}
+	type lineResult struct {
+		text string
+		err  error
+	}
 	reader := bufio.NewReader(in)
-	line, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("read confirmation: %w", err)
+	resultCh := make(chan lineResult, 1)
+	go func() {
+		line, err := reader.ReadString('\n')
+		resultCh <- lineResult{text: line, err: err}
+	}()
+
+	var line string
+	select {
+	case <-ctx.Done():
+		_, _ = fmt.Fprintln(out)
+		return fmt.Errorf("%w: %w", ErrAborted, context.Canceled)
+	case res := <-resultCh:
+		if res.err != nil && !errors.Is(res.err, io.EOF) {
+			return fmt.Errorf("read confirmation: %w", res.err)
+		}
+		line = res.text
 	}
 	answer := strings.ToLower(strings.TrimSpace(line))
 	if answer != "y" && answer != "yes" {

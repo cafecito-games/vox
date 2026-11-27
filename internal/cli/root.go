@@ -66,9 +66,8 @@ func NewApp() *App {
 func Execute(ctx context.Context) int {
 	app := NewApp()
 	cmd := NewRootCommand(app)
-	cmd.SetContext(ctx)
 
-	if err := cmd.Execute(); err != nil {
+	if err := cmd.ExecuteContext(ctx); err != nil {
 		if app.Out == nil {
 			app.Out = output.NewWriter(app.UseJSON, app.NoColor)
 		}
@@ -240,7 +239,12 @@ func (app *App) Enforce(cmd *cobra.Command) error {
 
 // ConfirmDestructive enforces the permission profile first, then prompts (unless --yes).
 func (app *App) ConfirmDestructive(commandPath, details string) error {
+	ctx := context.Background()
+	if app.Root != nil && app.Root.Context() != nil {
+		ctx = app.Root.Context()
+	}
 	err := app.Security.ConfirmDestructive(security.ConfirmOptions{
+		Context:         ctx,
 		CommandPath:     commandPath,
 		Details:         details,
 		ProfileOverride: app.Profile,
@@ -252,6 +256,9 @@ func (app *App) ConfirmDestructive(commandPath, details string) error {
 	if err != nil {
 		if errors.Is(err, security.ErrPermissionDenied) {
 			return output.PermissionError(err.Error(), err)
+		}
+		if errors.Is(err, context.Canceled) {
+			return output.InterruptedError("Cancelled.")
 		}
 		return output.NewError("aborted", err.Error())
 	}
