@@ -291,10 +291,19 @@ func DetectPermissionSplits(perms disgodiscord.Permissions) []PermissionSplit {
 // BuildOAuthInviteURL generates a Discord OAuth2 bot invite URL with the exact
 // requested permissions bitmask.
 func BuildOAuthInviteURL(botID snowflake.ID, perms disgodiscord.Permissions) string {
+	return BuildGuildOAuthInviteURL(botID, perms, 0)
+}
+
+// BuildGuildOAuthInviteURL optionally locks the bot invite to a specific server.
+func BuildGuildOAuthInviteURL(botID snowflake.ID, perms disgodiscord.Permissions, guildID snowflake.ID) string {
 	query := url.Values{}
 	query.Set("client_id", botID.String())
 	query.Set("scope", "bot applications.commands")
 	query.Set("permissions", strconv.FormatInt(int64(perms), 10))
+	if guildID != 0 {
+		query.Set("guild_id", guildID.String())
+		query.Set("disable_guild_select", "true")
+	}
 	return "https://discord.com/oauth2/authorize?" + query.Encode()
 }
 
