@@ -26,21 +26,10 @@ builds:
         -X github.com/cafecito-games/vox/internal/buildinfo.commit={{ .FullCommit }}
         -X github.com/cafecito-games/vox/internal/buildinfo.date={{ .CommitDate }}
         -X github.com/cafecito-games/vox/internal/buildinfo.treeState={{ if .IsGitDirty }}dirty{{ else }}clean{{ end }}
-
-notarize:
-  macos:
-    - enabled: '{{ not .IsSnapshot }}'
-      ids:
-        - vox
-      sign:
-        certificate: "{{ .Env.VOX_MACOS_CERTIFICATE_FILE }}"
-        password: "{{ .Env.APPLE_DEVELOPER_ID_P12_PASSWORD }}"
-      notarize:
-        issuer_id: "{{ .Env.APPSTORE_CONNECT_ISSUER_ID }}"
-        key_id: "{{ .Env.APPSTORE_CONNECT_KEY_ID }}"
-        key: "{{ .Env.VOX_MACOS_NOTARY_KEY_FILE }}"
-        wait: true
-        timeout: 15m
+    hooks:
+      post:
+        - cmd: bash .github/scripts/sign-macos.sh "{{ .Path }}" "{{ .Target }}" "{{ .IsSnapshot }}"
+          output: true
 
 archives:
   - id: binaries
