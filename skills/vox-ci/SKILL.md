@@ -16,7 +16,7 @@ Inspect the project's workflow and any existing notifier before editing. Identif
 | Attach files, issue other Vox commands, or reuse Vox for several steps | `cafecito-games/vox/actions/setup` followed by CLI commands |
 | Send a webhook from another CI system | Install a pinned, checksum-verified Vox release and run `vox webhook post` |
 
-Both GitHub Actions support Linux and macOS on X64 or ARM64. The notify action also needs `jq`. Verify that the chosen action ref contains the action and the selected Vox release includes `webhook post`. A release tag selects the matching binary by default. Set `vox-version` explicitly when pinning the action to a commit SHA. If the needed release is pending, keep the existing delivery step active and report the dependency.
+Both GitHub Actions support Linux and macOS on X64 or ARM64 and do not require `jq`. `actions/setup` caches verified binaries under `$RUNNER_TOOL_CACHE/vox/<version>/<arch>/vox` (re-verifying the SHA-256 digest on reuse), honours a pre-seeded `VOX_BIN` or `vox` on `PATH` matching the requested version, and exposes `path` and `cache-hit` outputs. Verify that the chosen action ref contains the action and the selected Vox release includes `webhook post`. A release tag selects the matching binary by default. Set `vox-version` explicitly when pinning the action to a commit SHA. If the needed release is pending, keep the existing delivery step active and report the dependency.
 
 ## Configure a notification
 
@@ -41,17 +41,16 @@ For a workflow with a `build` job, add a dependent job when you need a notificat
           message: ${{ github.workflow }} run #${{ github.run_number }}
 ```
 
-Use `message` alone for text or pair it with `title`, `status`, or `fields-json` for an embed. `status` controls color and the action links to the current run by default. Use `thread-id` when posting to an existing thread. A confirmed delivery exposes `steps.discord.outputs.message-id`.
+Use `message` alone for text or pair it with `title`, `status`, `color`, or `fields-json` for an embed. `status` maps `success`, `failure`, `warning`, `cancelled`, `skipped`, and `unknown` to distinct palette colors, while `color` accepts an arbitrary hex RGB value (mutually exclusive with `status`). The action links to the current run by default. Use `thread-id` when posting to an existing thread. Set `truncate: true` to clip overlong embeds to Discord's limits with an ellipsis and `escape-fields: true` to escape untrusted Discord markdown in field names and values. Confirmed deliveries expose `steps.discord.outputs.message-id`, `steps.discord.outputs.message-ids` (JSON array), and `steps.discord.outputs.delivered`.
 
-For a JSON report, generate or download it into the notification runner's workspace and pass `payload-file` on its own as the message source. If a file attachment is required, use the setup action and then run `vox webhook post --payload-file ./alert.json --file ./report.txt --json` with the webhook secret in that step. Mentions are suppressed by default. An explicit `allowed_mentions` in a JSON payload controls which mentions are allowed.
+For a JSON report or multi-message alert batch, generate or download it into the notification runner's workspace and pass `payload-file` on its own as the message source. `payload-file` accepts a single Discord webhook JSON object, a JSON array of objects, or a JSONL stream and posts them sequentially over one rate-limit-aware client. If a file attachment is required, use the setup action and then run `vox webhook post --payload-file ./alert.json --file ./report.txt --json` with the webhook secret in that step. Mentions are suppressed by default. An explicit `allowed_mentions` in a JSON payload controls which mentions are allowed.
 
 For bot-authenticated commands after setup, inject `DISCORD_BOT_TOKEN` in the step that needs it. Use `vox schema --json` to check which commands are available in the selected release.
 
 ## Replace an existing delivery script
 
-- Preserve job dependencies, triggers, conditions, and destination. If the old workflow skips a missing secret, put the secret reference in job-level `env` and guard the notify step with `if: env.DISCORD_WEBHOOK_URL != ''`. The action fails when the secret is missing.
-- Use `continue-on-error: true` on the notify step for best-effort delivery. Preserve any separate step that reports a failing build or health check.
-- Replace simple message rendering with action inputs. Keep report validation, aggregation, or batching in the project when it already computes a specialized payload. Remove the old HTTP delivery path once the new workflow covers it.
+- Preserve job dependencies, triggers, conditions, and destination. When notifications are optional or best-effort, pass `required: false` and `fail-on-delivery-error: false` to `actions/notify` (or `--best-effort` to `vox webhook post`). Prefer these over `continue-on-error: true`, especially when a step also owns the job's exit code.
+- Replace simple message rendering with action inputs. Use `--truncate` and `--escape-fields` (or the matching action inputs) instead of re-implementing Discord embed length caps or markdown escapers. Remove the old HTTP delivery path once the new workflow covers it.
 - Scope secrets to trusted jobs. Keep webhook values out of commands and logs. Keep dynamic values in action inputs or environment variables, and use `toJSON` when embedding a GitHub expression as a JSON string.
 
 Validate the workflow with `actionlint` when available. Exercise relevant success and failure cases with a mock or an authorized test channel. Verify the expected destination and that notification delivery preserves the workflow's failure behavior.
