@@ -360,7 +360,19 @@ All local checks are orchestrated with [Taskfile.yml](Taskfile.yml):
 | `task test` | Run all tests with `-race` (`testify` assertions throughout) |
 | `task release:snapshot` | Build local cross-platform archives and Homebrew cask via GoReleaser |
 
-Releases are cut from the **Release** GitHub Actions workflow (`workflow_dispatch`), where you choose whether to bump `patch`, `minor`, or `major`. The workflow runs all checks, computes and pushes the next `vX.Y.Z` tag, builds multi-platform archives with GoReleaser, and publishes the Homebrew cask to `cafecito-games/homebrew-tap`.
+Run the **Release** GitHub Actions workflow from `main` and choose a `patch`, `minor`, or `major` bump. The workflow tests the selected commit, computes and pushes the next `vX.Y.Z` tag, signs and notarizes the macOS binaries before packaging, then publishes the release archives and Homebrew cask.
+
+The release job uses the `macos-release` GitHub environment, which allows deployments from the `main` branch. Configure these environment secrets from the approved signing credentials.
+
+| Secret | Value |
+| --- | --- |
+| `APPLE_DEVELOPER_ID_P12_BASE64` | Base64-encoded Developer ID Application certificate and private key in a PKCS#12 file |
+| `APPLE_DEVELOPER_ID_P12_PASSWORD` | Password for the PKCS#12 file |
+| `APPSTORE_CONNECT_ISSUER_ID` | Issuer ID for the notarization API key |
+| `APPSTORE_CONNECT_KEY_ID` | Key ID for the notarization API key |
+| `APPSTORE_CONNECT_PRIVATE_KEY_BASE64` | Base64-encoded notarization API private key in a `.p8` file |
+
+The publishing step keeps decoded keys and release-tool output in a private temporary directory and deletes it on exit. Pull-request CI and local snapshots run without signing credentials.
 
 ## License
 

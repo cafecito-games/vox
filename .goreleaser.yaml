@@ -27,6 +27,21 @@ builds:
         -X github.com/cafecito-games/vox/internal/buildinfo.date={{ .CommitDate }}
         -X github.com/cafecito-games/vox/internal/buildinfo.treeState={{ if .IsGitDirty }}dirty{{ else }}clean{{ end }}
 
+notarize:
+  macos:
+    - enabled: '{{ not .IsSnapshot }}'
+      ids:
+        - vox
+      sign:
+        certificate: "{{ .Env.VOX_MACOS_CERTIFICATE_FILE }}"
+        password: "{{ .Env.APPLE_DEVELOPER_ID_P12_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.APPSTORE_CONNECT_ISSUER_ID }}"
+        key_id: "{{ .Env.APPSTORE_CONNECT_KEY_ID }}"
+        key: "{{ .Env.VOX_MACOS_NOTARY_KEY_FILE }}"
+        wait: true
+        timeout: 15m
+
 archives:
   - id: binaries
     formats:
@@ -65,19 +80,6 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/cafecito-games/vox"
     description: "Discord CLI for humans and AI agents"
-    # Release binaries are not notarized, so strip the quarantine attribute on
-    # install to prevent macOS Gatekeeper from blocking the executable.
-    #
-    # Uses custom_block rather than hooks.post.install so Homebrew receives the
-    # declarative `postflight_steps` block directly without deprecation warnings.
-    custom_block: |
-      postflight_steps do
-        on_macos do
-          if_path_exists "/usr/bin/xattr" do
-            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/vox"]
-          end
-        end
-      end
 
 release:
   draft: false
