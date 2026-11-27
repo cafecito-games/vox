@@ -25,11 +25,11 @@ func ParseSnowflake(value string) (snowflake.ID, bool) {
 }
 
 // FetchAllGuilds pages through GET /users/@me/guilds so bots in >200 guilds work reliably.
-func FetchAllGuilds(restClient rest.Rest) ([]disgodiscord.OAuth2Guild, error) {
+func FetchAllGuilds(restClient rest.Rest, opts ...rest.RequestOpt) ([]disgodiscord.OAuth2Guild, error) {
 	var all []disgodiscord.OAuth2Guild
 	var after snowflake.ID
 	for {
-		batch, err := restClient.GetCurrentUserGuilds("", 0, after, 200, 0, true)
+		batch, err := restClient.GetCurrentUserGuilds("", 0, after, 200, 0, true, opts...)
 		if err != nil {
 			return nil, MapError(err)
 		}

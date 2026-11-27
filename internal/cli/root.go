@@ -50,6 +50,8 @@ type App struct {
 	Out      *output.Writer
 	Logger   *slog.Logger
 	Root     *cobra.Command
+
+	newRest func(string, *slog.Logger) rest.Rest
 }
 
 // NewApp returns an App wired to standard OS I/O streams.
@@ -162,6 +164,7 @@ func NewRootCommand(app *App) *cobra.Command {
 		newVoiceCommand(app),
 
 		// Setup, Security & Introspection
+		newBotCommand(app),
 		newConfigCommand(app),
 		newPermissionCommand(app),
 		newAuditCommand(app),
@@ -290,7 +293,15 @@ func (app *App) WithRest(cmd *cobra.Command, fn func(rest.Rest) error) error {
 	if err != nil {
 		return err
 	}
-	client := voxdiscord.NewRest(token, app.Logger)
+	return app.withTokenRest(token, fn)
+}
+
+func (app *App) withTokenRest(token string, fn func(rest.Rest) error) error {
+	open := app.newRest
+	if open == nil {
+		open = voxdiscord.NewRest
+	}
+	client := open(token, app.Logger)
 	defer client.Close(context.Background())
 	return fn(client)
 }

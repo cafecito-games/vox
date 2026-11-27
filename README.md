@@ -57,13 +57,61 @@ vox setup
 
 ### Non-Interactive Setup (Scripts & AI Agents)
 
+Create the application and issue its bot token in Discord, then inject the token as `DISCORD_BOT_TOKEN` from your secret store. [Discord Developer Portal](https://discord.com/developers/applications)
+
 ```sh
-vox config set token YOUR_BOT_TOKEN
+vox bot show --json
+vox bot profile edit --username "Release Bot" --avatar ./avatar.png --json
+vox bot application edit --description "Publishes release updates" \
+  --tags releases,automation --guild-install-permissions view_channel,send_messages --json
+vox bot invite --guild-id "$DISCORD_GUILD_ID" --permissions view_channel,send_messages --json
 vox doctor --json
 vox doctor --server "My Server" --json
 ```
 
-`vox doctor --server <name>` inspects your bot's live Discord permission bitfield, including regressions from Discord's 2026 permission splits (`pin_messages`, `bypass_slowmode`, `create_expressions`, `create_events`).
+Pass `--application-id` to generate an invite offline, or `--bundle` to request one or more of `messaging`, `moderation`, `voice`, and `admin`. With no explicit permissions or bundles, the invite requests zero permission bits. An authorized server member opens the generated URL in Discord to approve installation.
+
+`--guild-install-permissions` changes the permissions requested by the application's default Discord install link. For an existing installation, use `vox role create` and `vox role assign` or `vox channel set-permissions` with a bot authorized to manage those server permissions. Use `vox doctor --server <name> --json` to check the target bot's actual server access, including regressions from Discord's 2026 permission splits.
+
+`vox bot application edit --help` lists editable settings, including limited Gateway intents such as `--message-content` and `--server-members`. Discord handles app creation, token resets, public/private status, OAuth2 code-grant requirements, and privileged-intent review in the Developer Portal. [Discord application API](https://docs.discord.com/developers/resources/application#edit-current-application) · [Discord installation authorization](https://docs.discord.com/developers/topics/oauth2#bot-authorization-flow)
+
+To manage multiple bots, select the token per invocation or use a separate `--config-dir` for each bot's stored token, profiles, and audit log. `DISCORD_BOT_TOKEN` takes precedence over a stored token. App and profile edits require `full` or a custom Vox profile that allows the exact command. For agents that should only invoke those commands, enforce the allowlist in the runner and inject the bot token there. Agents with direct access to the token or unrestricted shell access can bypass Vox's local permission profiles.
+
+### Provision a Bot from a Spec
+
+`vox bot provision` accepts one YAML or JSON document. Save a spec such as `release-bot.yaml` with the target server ID.
+
+```yaml
+version: 1
+name: release-bot
+guild_id: "123456789012345678"
+permissions: [view_channel, send_messages]
+profile:
+  username: ReleaseBot
+application:
+  description: Publishes release updates
+  tags: [releases, automation]
+```
+
+```sh
+vox bot provision release-bot.yaml --json
+# After creating the app and injecting its token from your secret store
+vox bot provision release-bot.yaml --application-id "$DISCORD_APPLICATION_ID" --json
+# After the server member approves installation
+vox bot provision release-bot.yaml --json
+```
+
+Supply the application ID with `--application-id` or the spec's `application_id` field. Vox records the server ID for this provision name and saves the application binding after verifying its token. Subsequent runs reuse that binding in the same config directory, compare settings with Discord, and resume from the current state. The runner supplies the token on every authenticated run. An agent's Vox profile must allow `bot provision`.
+
+| JSON status | What happens next |
+| --- | --- |
+| `needs_discord_app` | Create or select an application at `portal_url` and supply its ID. |
+| `needs_bot_token` | Obtain the application's token at `portal_url` and inject it as `DISCORD_BOT_TOKEN`. |
+| `needs_install_approval` | Have a server member with Manage Server open `install_url`. If the app requires an OAuth2 code grant, use its configured install flow. |
+| `needs_permissions` | Grant the listed `missing_permissions` to the installed bot. |
+| `ready` | The bot is installed in the requested server and has the required server-level permissions. |
+
+Each status exits successfully. Scripts should check for `ready` to determine whether provisioning is complete. Top-level `permissions` controls the invite request and the minimum server-level permissions Vox checks. An optional `application.guild_install_permissions` sets the app-wide install defaults. Other optional application fields include `custom_install_url`, `interactions_endpoint_url`, and the `intents` settings `message_content`, `server_members`, and `presence`. Use `vox bot profile edit` and `vox bot application edit` for image uploads. [Discord application API](https://docs.discord.com/developers/resources/application#edit-current-application) · [Discord server permissions](https://docs.discord.com/developers/resources/guild#get-guild-member-permissions)
 
 ## Everyday Usage
 
@@ -99,6 +147,25 @@ vox schedule run
 ```
 
 ## AI Agent Integration
+
+### Install the Agent Skills
+
+Install the Vox binary and add the skills to your agent with the Vercel Skills CLI.
+
+```sh
+npx skills add cafecito-games/vox
+```
+
+Select the skills you want. Use `--skill vox-admin` to select a specific skill or `--skill '*'` to select all of them.
+
+| Skill | Covers |
+| --- | --- |
+| [`vox`](skills/vox/SKILL.md) | Command discovery, messages, search, threads, polls, reactions, DMs, and access checks |
+| [`vox-admin`](skills/vox-admin/SKILL.md) | Bot provisioning, server-as-code, permissions, moderation, and community administration |
+| [`vox-automation`](skills/vox-automation/SKILL.md) | Event listeners, daemon actions, schedules, slash commands, workflows, and dashboards |
+| [`vox-voice`](skills/vox-voice/SKILL.md) | Voice sessions, playback, text-to-speech, transcription, and capture |
+
+From a local Vox checkout, preview discovery with `npx skills add . --list`. The skills refer to `vox schema --json` for the command and action catalog of the installed binary.
 
 ### 1. Self-Describing Schema
 
