@@ -9,18 +9,38 @@ inputs:
     description: Title of a Discord embed
   status:
     description: Embed color for success, failure, warning, cancelled, skipped, or unknown
+  color:
+    description: Embed color as a hex RGB value (e.g. 5865F2 or #5865F2); cannot be combined with status
   url:
     description: Link for the embed title (defaults to the current Actions run)
   fields-json:
     description: JSON array of Discord embed fields
   payload-file:
-    description: Path to a complete Discord webhook JSON payload, as an alternative to message and embed inputs
+    description: Path to a Discord webhook JSON payload file (single object, JSON array, or JSONL), as an alternative to message and embed inputs
   thread-id:
     description: Discord thread ID for the destination
+  required:
+    description: Fail if DISCORD_WEBHOOK_URL is unset or empty
+    default: 'true'
+  fail-on-delivery-error:
+    description: Fail if Discord webhook delivery fails
+    default: 'true'
+  truncate:
+    description: Truncate overlong embed text and counts to Discord limits with an ellipsis
+    default: 'false'
+  escape-fields:
+    description: Escape Discord markdown and link syntax in embed field names and values
+    default: 'false'
 outputs:
   message-id:
-    description: ID of the Discord message confirmed by the webhook API
+    description: ID of the Discord message confirmed by the webhook API (empty for multi-message batches or undelivered notifications)
     value: ${{ steps.post.outputs.message-id }}
+  message-ids:
+    description: JSON array of Discord message IDs confirmed by the webhook API
+    value: ${{ steps.post.outputs.message-ids }}
+  delivered:
+    description: Whether all notification messages were confirmed by Discord
+    value: ${{ steps.post.outputs.delivered }}
 runs:
   using: composite
   steps:
@@ -28,10 +48,21 @@ runs:
       shell: bash
       env:
         VOX_VERSION: ${{ inputs.vox-version || github.action_ref }}
+        VOX_NOTIFY_REQUIRED: ${{ inputs.required }}
       run: |
-        if [[ -z "${DISCORD_WEBHOOK_URL:-}" ]]; then
-          echo '::error::Set DISCORD_WEBHOOK_URL to the Discord webhook secret.'
-          exit 1
+        required=${VOX_NOTIFY_REQUIRED:-true}
+        case "$required" in
+          true|false) ;;
+          *) echo '::error::Input required must be true or false.'; exit 1 ;;
+        esac
+        trimmed_url=$(printf '%s' "${DISCORD_WEBHOOK_URL:-}" | tr -d '[:space:]')
+        if [[ -z "$trimmed_url" ]]; then
+          if [[ "$required" == "true" ]]; then
+            echo '::error::Set DISCORD_WEBHOOK_URL to the Discord webhook secret.'
+            exit 1
+          fi
+          printf 'path=\n' >> "$GITHUB_OUTPUT"
+          exit 0
         fi
         DISCORD_WEBHOOK_URL= bash "$GITHUB_ACTION_PATH/../setup/install.sh"
     - id: post
@@ -41,8 +72,13 @@ runs:
         VOX_NOTIFY_MESSAGE: ${{ inputs.message }}
         VOX_NOTIFY_TITLE: ${{ inputs.title }}
         VOX_NOTIFY_STATUS: ${{ inputs.status }}
+        VOX_NOTIFY_COLOR: ${{ inputs.color }}
         VOX_NOTIFY_URL: ${{ inputs.url }}
         VOX_NOTIFY_FIELDS: ${{ inputs.fields-json }}
         VOX_NOTIFY_PAYLOAD: ${{ inputs.payload-file }}
         VOX_NOTIFY_THREAD: ${{ inputs.thread-id }}
+        VOX_NOTIFY_REQUIRED: ${{ inputs.required }}
+        VOX_NOTIFY_FAIL_ON_DELIVERY_ERROR: ${{ inputs.fail-on-delivery-error }}
+        VOX_NOTIFY_TRUNCATE: ${{ inputs.truncate }}
+        VOX_NOTIFY_ESCAPE_FIELDS: ${{ inputs.escape-fields }}
       run: bash "$GITHUB_ACTION_PATH/post.sh"

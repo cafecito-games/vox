@@ -7,6 +7,9 @@ outputs:
   path:
     description: Absolute path to the installed Vox executable
     value: ${{ steps.install.outputs.path }}
+  cache-hit:
+    description: Whether Vox was reused from an existing installation or the runner tool cache
+    value: ${{ steps.install.outputs.cache-hit }}
 runs:
   using: composite
   steps:

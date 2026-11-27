@@ -80,8 +80,14 @@ func ParseEmbedFieldFlag(raw string) (EmbedFieldSpec, error) {
 	}, nil
 }
 
-// BuildEmbed converts an EmbedSpec into a disgo discord.Embed.
+// BuildEmbed converts an EmbedSpec into a validated disgo discord.Embed.
 func BuildEmbed(spec EmbedSpec) (disgodiscord.Embed, error) {
+	return BuildEmbedWithOptions(spec, EmbedBuildOptions{})
+}
+
+// BuildEmbedWithOptions converts an EmbedSpec into a validated disgo discord.Embed,
+// optionally escaping field markdown and truncating overlong values to Discord's limits.
+func BuildEmbedWithOptions(spec EmbedSpec, options EmbedBuildOptions) (disgodiscord.Embed, error) {
 	embed := disgodiscord.Embed{
 		Title:       spec.Title,
 		Description: spec.Description,
@@ -137,12 +143,24 @@ func BuildEmbed(spec EmbedSpec) (disgodiscord.Embed, error) {
 		embed.Fields = make([]disgodiscord.EmbedField, 0, len(spec.Fields))
 		for _, field := range spec.Fields {
 			inline := field.Inline
+			name := field.Name
+			value := field.Value
+			if options.EscapeFields {
+				name = EscapeMarkdown(name)
+				value = EscapeMarkdown(value)
+			}
 			embed.Fields = append(embed.Fields, disgodiscord.EmbedField{
-				Name:   field.Name,
-				Value:  field.Value,
+				Name:   name,
+				Value:  value,
 				Inline: &inline,
 			})
 		}
+	}
+	if options.Truncate {
+		embed = TruncateEmbeds([]disgodiscord.Embed{embed})[0]
+	}
+	if err := ValidateEmbed(embed); err != nil {
+		return disgodiscord.Embed{}, err
 	}
 	return embed, nil
 }

@@ -45,9 +45,9 @@ Prebuilt binaries for macOS (`arm64`, `x86_64`), Linux (`arm64`, `x86_64`), and 
 
 ## GitHub Actions
 
-Use `cafecito-games/vox/actions/notify` for a Discord notification and `cafecito-games/vox/actions/setup` to make the Vox CLI available to later steps. Both actions install a checksum-verified Vox release on Linux or macOS runners with X64 or ARM64 architecture. They use the action's release tag by default. Set `vox-version` explicitly when pinning the action to a commit SHA. The notification action requires `jq` and reads the webhook from the `DISCORD_WEBHOOK_URL` environment variable.
+Use `cafecito-games/vox/actions/notify` for a Discord notification and `cafecito-games/vox/actions/setup` to make the Vox CLI available to later steps. Both actions install a checksum-verified Vox release on Linux or macOS runners with X64 or ARM64 architecture, cache the verified binary under `$RUNNER_TOOL_CACHE/vox/<version>/<arch>/vox`, and reuse an existing `VOX_BIN` or `vox` on `PATH` when `vox --version` matches the requested tag. They use the action's release tag by default. Set `vox-version` explicitly when pinning the action to a commit SHA. The notification action reads the webhook from the `DISCORD_WEBHOOK_URL` environment variable and has no `jq` requirement.
 
-Add this notification job to a workflow with a `deploy` job. Replace `vX.Y.Z` with a published Vox release that contains `webhook post`. The job skips an unset webhook secret and treats delivery as best-effort.
+Add this notification job to a workflow with a `deploy` job. Replace `vX.Y.Z` with a published Vox release that contains `webhook post`. The step skips an unset webhook secret and treats delivery as best-effort without needing `continue-on-error`.
 
 ```yaml
   notify-discord:
@@ -56,18 +56,18 @@ Add this notification job to a workflow with a `deploy` job. Replace `vX.Y.Z` wi
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
-    env:
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
     steps:
       - name: Post deployment status
-        if: env.DISCORD_WEBHOOK_URL != ''
         id: discord
         uses: cafecito-games/vox/actions/notify@vX.Y.Z
-        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         with:
           title: Deployment · ${{ needs.deploy.result }}
           message: ${{ github.workflow }} run #${{ github.run_number }}
           status: ${{ needs.deploy.result }}
+          required: false
+          fail-on-delivery-error: false
           fields-json: >-
             [
               {"name":"Ref","value":${{ toJSON(github.ref_name) }},"inline":true},
@@ -75,7 +75,7 @@ Add this notification job to a workflow with a `deploy` job. Replace `vX.Y.Z` wi
             ]
 ```
 
-Use `message` for plain text or add `title`, `status`, or `fields-json` to create an embed. The action links to the current Actions run by default. Use `payload-file` to send an existing Discord JSON payload and `thread-id` to target a thread. A successful post exposes `steps.discord.outputs.message-id`. Leave `continue-on-error` unset when a delivery failure should fail the step.
+Use `message` for plain text or add `title`, `status`, `color` (hex RGB, mutually exclusive with `status`), or `fields-json` to create an embed. The action links to the current Actions run by default. Use `payload-file` to send a single Discord JSON payload, a JSON array of payloads, or a JSONL stream, and `thread-id` to target a thread. Set `truncate: true` to clip overlong embeds with an ellipsis and `escape-fields: true` to escape untrusted Discord markdown in field names and values. The action exposes `message-id`, `message-ids` (JSON array), and `delivered` outputs; `actions/setup` exposes `path` and `cache-hit`.
 
 For direct CLI access, use the setup action followed by a shell step. Supply the webhook secret to the posting step.
 
@@ -86,7 +86,7 @@ For direct CLI access, use the setup action followed by a shell step. Supply the
     DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 ```
 
-`vox webhook post` accepts text, embed flags, or a complete Discord JSON payload from a file or stdin (`--payload-file -`). It uses the webhook credential alone and waits for Discord to confirm delivery. Mentions are suppressed by default. A JSON payload can opt in using `allowed_mentions`. Use `vox webhook post --help` for the full set of flags.
+`vox webhook post` accepts text, embed flags, or Discord JSON payloads (single object, JSON array, or JSONL) from a file or stdin (`--payload-file -`). It validates embeds against Discord's limits before sending (with optional `--truncate` and `--escape-fields`), supports `--best-effort` for tolerant delivery and `--output id|github-output` for scripts, uses the webhook credential alone, and waits for Discord to confirm delivery. Mentions are suppressed by default. A JSON payload can opt in using `allowed_mentions`. Use `vox webhook post --help` for the full set of flags.
 
 ## Quickstart
 

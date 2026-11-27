@@ -35,6 +35,7 @@ type CLIError struct {
 	Code     string
 	Message  string
 	Hint     string
+	Details  map[string]any
 	ExitCode int
 	Cause    error
 }
@@ -208,6 +209,7 @@ func (writer *Writer) PrintError(err error) {
 
 	code := "error"
 	hint := ""
+	var details map[string]any
 	message := err.Error()
 	var cliErr *CLIError
 	if errors.As(err, &cliErr) {
@@ -215,6 +217,7 @@ func (writer *Writer) PrintError(err error) {
 			code = cliErr.Code
 		}
 		hint = cliErr.Hint
+		details = cliErr.Details
 	}
 
 	if writer.JSON {
@@ -224,6 +227,9 @@ func (writer *Writer) PrintError(err error) {
 		}
 		if hint != "" {
 			payload["hint"] = hint
+		}
+		if len(details) > 0 {
+			payload["details"] = details
 		}
 		encoded, marshalErr := json.Marshal(payload)
 		if marshalErr == nil {

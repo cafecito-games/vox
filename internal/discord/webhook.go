@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -93,10 +94,19 @@ func NewWebhookRest() rest.Client {
 	)
 }
 
+// ValidateThread verifies that an explicit thread ID does not conflict with
+// a thread_id query parameter in DISCORD_WEBHOOK_URL.
+func (target WebhookTarget) ValidateThread(threadID snowflake.ID) error {
+	if threadID != 0 && target.threadID != 0 && target.threadID != threadID {
+		return output.UsageError("--thread conflicts with thread_id in DISCORD_WEBHOOK_URL")
+	}
+	return nil
+}
+
 // Post sends a payload to Discord and waits for a confirmed message.
 func (target WebhookTarget) Post(ctx context.Context, client rest.Client, body any, threadID snowflake.ID, components bool) (*disgodiscord.Message, error) {
-	if threadID != 0 && target.threadID != 0 && target.threadID != threadID {
-		return nil, output.UsageError("--thread conflicts with thread_id in DISCORD_WEBHOOK_URL")
+	if err := target.ValidateThread(threadID); err != nil {
+		return nil, err
 	}
 	if threadID == 0 {
 		threadID = target.threadID
@@ -108,13 +118,14 @@ func (target WebhookTarget) Post(ctx context.Context, client rest.Client, body a
 	if err := client.Do(rest.CreateWebhookMessage.Compile(query, target.id, target.token), body, &msg, rest.WithCtx(ctx)); err != nil {
 		// Discord and transport errors can include the URL, request data, or echoed secrets.
 		var restErr *rest.Error
+		var netErr net.Error
 		switch {
 		case errors.As(err, &restErr) && restErr.Response != nil:
 			return nil, output.NewError("webhook_post_failed", fmt.Sprintf("Discord webhook delivery failed (HTTP %d, Discord code %d).",
 				restErr.Response.StatusCode, restErr.Code))
 		case errors.Is(err, context.Canceled):
 			return nil, output.InterruptedError("Webhook request cancelled.")
-		case errors.Is(err, context.DeadlineExceeded):
+		case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()):
 			return nil, output.NewError("webhook_timeout", "Discord did not confirm the webhook message before the timeout.")
 		default:
 			return nil, output.NewError("webhook_post_failed", "Discord did not confirm the webhook message.")
