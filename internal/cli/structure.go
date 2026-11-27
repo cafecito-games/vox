@@ -918,7 +918,7 @@ func newWebhookCommand(app *App) *cobra.Command {
 		},
 	}
 
-	group.AddCommand(listCmd, createCmd, sendCmd, deleteCmd)
+	group.AddCommand(listCmd, createCmd, sendCmd, deleteCmd, newWebhookPostCommand(app))
 	return group
 }
 

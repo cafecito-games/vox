@@ -1,0 +1,17 @@
+name: Set up Vox
+description: Install a checksum-verified Vox release and add it to PATH
+inputs:
+  vox-version:
+    description: Vox release tag, defaults to the release tag in the action ref
+outputs:
+  path:
+    description: Absolute path to the installed Vox executable
+    value: ${{ steps.install.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        VOX_VERSION: ${{ inputs.vox-version || github.action_ref }}
+      run: bash "$GITHUB_ACTION_PATH/install.sh"

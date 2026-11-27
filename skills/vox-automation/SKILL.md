@@ -16,6 +16,8 @@ Choose the connection model that matches the task.
 
 Use `vox schema --json` to discover commands, flags, and available daemon actions for the installed version. Read [Daemon and interactions](references/daemon.md) for the JSONL contract and interactive workflows.
 
+For notifications from a CI/CD pipeline, use the `vox-ci` skill when available.
+
 ## Observe events
 
 ```sh
